@@ -9,7 +9,7 @@ class UserLogin(UserRegister):
     pass
 
 
-class UserOut(UserRegister):
+class UserOut(BaseModel):
     username: str
     
 
