@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-#rewrite this shit
+
 class UserRegister(BaseModel):
     username: str
     password: str
@@ -16,3 +16,7 @@ class UserOut(BaseModel):
 class UserDb(UserRegister):
     username: str
     hash_pass: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str

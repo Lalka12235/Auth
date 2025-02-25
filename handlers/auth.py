@@ -7,6 +7,7 @@ from passlib.context import CryptContext
 import secrets
 from datetime import datetime, timedelta, timezone
 import jwt
+from jwt.exceptions import InvalidTokenError
 
 
 router = APIRouter()
@@ -33,6 +34,15 @@ def verify_pass(password: str,hash_pass: str):
     return pwd_context.verify(password,hash_pass)
 
 
+def authenticate_user(db,username: str,password: str):
+    user = get_user(users_db,username)
+    if not user:
+        return False
+    if not verify_pass(password,user.hash_pass):
+        return False
+    return user
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
@@ -54,11 +64,44 @@ def get_user(db,username:str):
         user_dict = db[username]
         return UserDb(**user_dict)
     
+async def get_current_user(token: Annotated[str,Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
+    try:
+        payload = jwt.decode(token,SECRET_KEY,algorithms=[ALGORITHM])
+        username = payload.get('sub')
+        if username is None:
+            raise credentials_exception
+    except InvalidTokenError:
+        raise credentials_exception
+    user = get_user(users_db,username=username)
+    if user is None:
+        raise credentials_exception
+    return user
 
-@router.post('/auth/register{username}')
-async def register_account(username: str,user: UserRegister) -> UserDb:
-    if user.username not in users_db:
-        user_hash_pass = make_hash_pass(user.password)
-        users_db.update({'username': {'username': user.username,'password': user.password}})
-        return users_db[user.username]
+#@router.post('/auth/register{username}')
+#async def register_account(username: str,user: UserRegister) -> UserDb:
+#    if user.username not in users_db:
+#        user_hash_pass = make_hash_pass(user.password)
+#        users_db.update({'username': {'username': user.username,'password': user.password}})
+#        return users_db[user.username]
+
+@router.post('/token')
+async def login_for_acces_token(form_data: Annotated[OAuth2PasswordRequestForm,Depends()]) -> Token:
+    user = authenticate_user(users_db,form_data.username,form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    acces_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_acces_token(
+        data ={'sub': user.username},expires_delta=acces_token_expires
+    )
+    return Token(access_token=access_token, token_type="bearer")
+
