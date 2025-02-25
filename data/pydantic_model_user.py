@@ -13,7 +13,7 @@ class UserOut(BaseModel):
     username: str
     
 
-class UserDb(UserRegister):
+class UserDb(BaseModel):
     username: str
     hash_pass: str
 

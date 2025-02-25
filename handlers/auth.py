@@ -3,7 +3,6 @@ from typing import Annotated
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from data.pydantic_model_user import *
 import bcrypt
-from passlib.context import CryptContext
 import secrets
 from datetime import datetime, timedelta, timezone
 import jwt
@@ -17,7 +16,7 @@ SECRET_KEY = secrets.token_hex(64)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-#temp test. add later db
+#temp test
 users_db = {
     
 }
@@ -31,11 +30,11 @@ def make_hash_pass(password: str):
 
 #verify pass == hash_pass
 def verify_pass(password: str,hash_pass: str):
-    return pwd_context.verify(password,hash_pass)
+    return bcrypt.checkpw(password.encode('utf-8'), hash_pass.encode('utf-8'))
 
-
+#auth user if in db
 def authenticate_user(db,username: str,password: str):
-    user = get_user(users_db,username)
+    user = get_user(db,username)
     if not user:
         return False
     if not verify_pass(password,user.hash_pass):
@@ -43,7 +42,6 @@ def authenticate_user(db,username: str,password: str):
     return user
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
 
@@ -63,6 +61,7 @@ def get_user(db,username:str):
     if username in db:
         user_dict = db[username]
         return UserDb(**user_dict)
+    return None
     
 async def get_current_user(token: Annotated[str,Depends(oauth2_scheme)]):
     credentials_exception = HTTPException(
@@ -83,14 +82,21 @@ async def get_current_user(token: Annotated[str,Depends(oauth2_scheme)]):
         raise credentials_exception
     return user
 
-#@router.post('/auth/register{username}')
-#async def register_account(username: str,user: UserRegister) -> UserDb:
-#    if user.username not in users_db:
-#        user_hash_pass = make_hash_pass(user.password)
-#        users_db.update({'username': {'username': user.username,'password': user.password}})
-#        return users_db[user.username]
+@router.post('/auth/register')
+async def register_account(user: UserRegister):
+    find_user = get_user(users_db, user.username)
+    
+    if find_user:
+        return {'message': 'User already exists'}
 
-@router.post('/token')
+    hashed_password = make_hash_pass(user.password)
+    new_user = UserDb(username=user.username,hash_pass=hashed_password)
+    users_db[user.username] = new_user.dict()
+    
+    return UserOut(username=user.username)
+
+
+@router.post('/token/login')
 async def login_for_acces_token(form_data: Annotated[OAuth2PasswordRequestForm,Depends()]) -> Token:
     user = authenticate_user(users_db,form_data.username,form_data.password)
     if not user:
@@ -105,3 +111,6 @@ async def login_for_acces_token(form_data: Annotated[OAuth2PasswordRequestForm,D
     )
     return Token(access_token=access_token, token_type="bearer")
 
+@router.get('/users/')
+async def read_users(user: Annotated[str,Depends(get_current_user)]):
+    return users_db
